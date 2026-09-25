@@ -1,0 +1,16 @@
+{
+  "name": "sfcw-sales-command-center",
+  "version": "1.0.0",
+  "description": "SF City Wash Sales Command Center — AI copilot, priority queue, and call-prep tools for reps working GHL/Setmore leads",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
+    "axios": "^1.7.2",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2"
+  }
+}
