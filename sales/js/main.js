@@ -13,7 +13,7 @@ import * as LeadProfile from './views/lead-profile.js';
 import * as Followups from './views/followups.js';
 import * as CallList from './views/call-list.js';
 import * as Scripts from './views/scripts.js';
-import * as Bookings from './views/bookings.js';
+import * as Calendar from './views/calendar.js';
 import * as Analytics from './views/analytics.js';
 import * as Settings from './views/settings.js';
 import { makeBucketView } from './views/bucket-view.js';
@@ -35,7 +35,7 @@ function matchRoute(hash) {
   if (leadMatch) return { view: LeadProfile, params: [decodeURIComponent(leadMatch[1])] };
   const table = {
     '#/queue': Queue, '#/inbox': Inbox, '#/messages': Messages, '#/copilot': Copilot, '#/leads': Leads, '#/followups': Followups,
-    '#/call-list': CallList, '#/scripts': Scripts, '#/bookings': Bookings, '#/reactivation': Reactivation,
+    '#/call-list': CallList, '#/scripts': Scripts, '#/calendar': Calendar, '#/reactivation': Reactivation,
     '#/maintenance': Maintenance, '#/analytics': Analytics, '#/settings': Settings,
   };
   return { view: table[hash] || CommandCenter, params: [] };

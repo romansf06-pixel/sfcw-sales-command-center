@@ -17,8 +17,9 @@ const { computeQueue, DEFAULT_CONFIG } = require('./priority');
 const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch } = require('./queries');
 const { classifyMessage } = require('./intent');
 const { analyzeCall } = require('../sales-ai/call-coaching');
+const { resolveServiceKey, getRecommendedSlots } = require('./availability');
 
-module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, getAI, syncNow }) {
+module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, getAI, syncNow, readData }) {
   const router = express.Router();
 
   function requireDb(req, res, next) {
@@ -116,6 +117,22 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
       res.json({ ok: true, conversationId: convId, messages, contactId });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.response?.data?.message || e.message });
+    }
+  });
+
+  // ── Availability — "can I offer them a slot right now" without leaving
+  // the lead's page. Reads live from the public Booking Worker (see
+  // sales-api/availability.js) — never invents a time; a day with no
+  // response or no openings is simply omitted, not padded with a guess.
+  router.get('/leads/:id/availability', async (req, res) => {
+    const lead = getLeadDetail(dbModule, req.params.id);
+    if (!lead) return res.status(404).json({ ok: false, error: 'Lead not found' });
+    try {
+      const service = resolveServiceKey(readData, lead.service);
+      const { days, supportPhone } = await getRecommendedSlots({ axios, serviceKey: service.key });
+      res.json({ ok: true, service, days, supportPhone });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

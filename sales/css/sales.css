@@ -149,6 +149,34 @@ table.leads tr:hover td { background: rgba(255,255,255,.02); }
 .disp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .disp-btn { font-size: 11px; padding: 7px 8px; }
 
+/* ── Availability (Lead Profile) ────────────────────────────────────────── */
+.avail-days { display: flex; flex-direction: column; gap: 8px; }
+.avail-day { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.avail-day:last-child { border-bottom: none; }
+.avail-date { font-size: 12px; font-weight: 700; color: var(--text-dim); white-space: nowrap; }
+.avail-times { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+.avail-chip { background: var(--accent-d); border: 1px solid var(--border2); color: var(--accent-l); border-radius: 8px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+.avail-more { color: var(--muted); font-size: 11px; align-self: center; }
+
+/* ── Calendar tab ────────────────────────────────────────────────────────── */
+.cal-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.cal-hdr-title { font-size: 15px; font-weight: 800; min-width: 160px; text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-dow { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); text-align: center; padding-bottom: 4px; }
+.cal-cell {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  min-height: 92px; padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+}
+.cal-cell:hover { border-color: var(--border2); }
+.cal-cell.out { opacity: .35; }
+.cal-cell.today { border-color: var(--accent); }
+.cal-cell.selected { border-color: var(--accent-l); background: var(--accent-d); }
+.cal-daynum { font-size: 11px; font-weight: 700; color: var(--text-dim); }
+.cal-chip { font-size: 10px; padding: 1px 5px; border-radius: 5px; background: var(--card3); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-chip.past { opacity: .6; }
+.cal-more { font-size: 10px; color: var(--muted); }
+.cal-detail-list { display: flex; flex-direction: column; gap: 8px; }
+
 /* ── Command palette / search ───────────────────────────────────────── */
 .palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }
 .palette-overlay.open { display: flex; }

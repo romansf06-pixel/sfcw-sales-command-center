@@ -8,7 +8,7 @@ const ITEMS = [
   { route: '#/followups', label: 'Follow-Ups' },
   { route: '#/call-list', label: 'Call List' },
   { route: '#/scripts', label: 'Scripts' },
-  { route: '#/bookings', label: 'Bookings' },
+  { route: '#/calendar', label: 'Calendar' },
   { route: '#/reactivation', label: 'Reactivation', countKey: 'reactivation' },
   { route: '#/maintenance', label: 'Maintenance', countKey: 'maintenance_due' },
   { route: '#/analytics', label: 'Analytics' },

@@ -51,6 +51,7 @@ export const api = {
   leads:          (params) => get('/api/sales/leads', params),
   lead:           (id) => get(`/api/sales/leads/${id}`),
   timeline:       (id) => get(`/api/sales/leads/${id}/timeline`),
+  availability:   (id) => get(`/api/sales/leads/${id}/availability`),
   conversation:   (id) => get(`/api/sales/leads/${id}/conversations`),
   addNote:        (id, body) => post(`/api/sales/leads/${id}/notes`, { body }),
   addFollowup:    (id, dueAt, reason, note) => post(`/api/sales/leads/${id}/followups`, { dueAt, reason, note }),

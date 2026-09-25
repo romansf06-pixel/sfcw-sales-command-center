@@ -4,6 +4,21 @@ import { openFollowupModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { renderPricingCard, buildCallScript, buildUpsellNotes } from '../pricing.js';
 
+function fmtTime12(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function fmtWeekdayDate(dateStr) {
+  // dateStr is "YYYY-MM-DD" — parsed as local, not UTC, so the weekday
+  // shown always matches the date shown (a bare `new Date("YYYY-MM-DD")`
+  // parses as UTC midnight, which reads as the previous day west of UTC).
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 function ruleBasedSummary(lead) {
   const parts = [];
   parts.push(`${lead.name} came in via ${lead.source || 'an unknown source'}${lead.vehicle ? ` for a ${escapeHtml(lead.vehicle)}` : ''}${lead.service ? `, requesting ${escapeHtml(lead.service)}` : ''}.`);
@@ -77,6 +92,11 @@ export async function mount(root, id) {
           <div class="field-row"><span class="k">Tags</span><span>${(lead.tags||[]).map(escapeHtml).join(', ') || '—'}</span></div>
           ${lead.ghlNotes ? `<div class="field-row"><span class="k">Customer note</span><span>${escapeHtml(lead.ghlNotes)}</span></div>` : ''}
           ${lead.maintenance ? `<div class="field-row"><span class="k">Maintenance</span><span>${escapeHtml(lead.maintenance.status)} · next due ${escapeHtml(lead.maintenance.nextDueDate || '—')}</span></div>` : ''}
+        </div>
+
+        <div class="card" id="lp-availability">
+          <div class="card-title">Availability — Next Openings</div>
+          <div class="spinner">Checking live availability…</div>
         </div>
 
         <div class="card">
@@ -163,6 +183,37 @@ export async function mount(root, id) {
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Get Coaching'; }
     }));
   }).catch(() => { root.querySelector('#lp-convo').innerHTML = '<div class="empty-state">Could not load conversation.</div>'; });
+
+  // Availability (fetched separately — live call to the public Booking
+  // Worker, not part of the cached lead object) — see sales-api/availability.js.
+  api.availability(id).then(r => {
+    const el = root.querySelector('#lp-availability');
+    if (!el) return;
+    if (!r.days?.length) {
+      el.innerHTML = `<div class="card-title">Availability — Next Openings</div>
+        <div class="empty-state">No openings found in the next 7 days — call ${escapeHtml(r.supportPhone || '')} to check further out.</div>`;
+      return;
+    }
+    const svcLine = r.service.approximate
+      ? `<div class="lead-meta" style="margin-bottom:8px;">${escapeHtml(r.service.note || 'Approximate — based on a standard appointment length.')}</div>`
+      : `<div class="lead-meta" style="margin-bottom:8px;">For ${escapeHtml(r.service.name)}${r.service.price ? ` · $${r.service.price}` : ''}${r.service.durationMinutes ? ` · ~${r.service.durationMinutes} min` : ''}</div>`;
+    el.innerHTML = `
+      <div class="card-title">Availability — Next Openings</div>
+      ${svcLine}
+      <div class="avail-days">
+        ${r.days.map(d => `
+          <div class="avail-day">
+            <div class="avail-date">${escapeHtml(fmtWeekdayDate(d.date))}</div>
+            <div class="avail-times">
+              ${d.times.map(t => `<span class="avail-chip">${escapeHtml(fmtTime12(t))}</span>`).join('')}
+              ${d.totalOpen > d.times.length ? `<span class="avail-more">+${d.totalOpen - d.times.length} more</span>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }).catch(() => {
+    const el = root.querySelector('#lp-availability');
+    if (el) el.innerHTML = `<div class="card-title">Availability — Next Openings</div><div class="empty-state">Could not load live availability.</div>`;
+  });
 
   root.querySelector('#lp-followup').addEventListener('click', () => openFollowupModal(id, () => mount(root, id)));
   root.querySelector('#lp-ask-copilot').addEventListener('click', () => {

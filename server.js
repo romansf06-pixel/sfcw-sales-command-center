@@ -672,7 +672,7 @@ app.use("/sales", express.static(path.join(__dirname, "sales")));
 app.get("/", (_req, res) => res.redirect("/sales/"));
 
 app.use("/api/sales", salesRoutes({
-  dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, getAI,
+  dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, getAI, readData,
   syncNow: async () => {
     await Promise.all([
       (async () => { await fetchGHLPipelines(); await fetchGHLContacts(); })(),

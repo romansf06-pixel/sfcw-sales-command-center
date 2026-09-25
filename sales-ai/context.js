@@ -12,10 +12,10 @@ const APP_MANIFEST = {
     { route: '#/inbox', name: 'Inbox', purpose: 'Just the Needs Reply bucket.' },
     { route: '#/messages', name: 'Conversations', purpose: 'Every recent conversation/call-log entry, filterable, not just actionable ones.' },
     { route: '#/leads', name: 'Leads', purpose: 'Full searchable/filterable table over all contacts.' },
-    { route: '#/lead/:id', name: 'Lead Profile', purpose: 'Everything known about one lead: conversation, timeline, notes, dispositions, follow-ups, booking status, AI actions.' },
+    { route: '#/lead/:id', name: 'Lead Profile', purpose: 'Everything known about one lead: conversation, timeline, notes, dispositions, follow-ups, booking status, live availability, AI actions.' },
     { route: '#/followups', name: 'Follow-Ups', purpose: 'Overdue and upcoming manually-set follow-ups.' },
     { route: '#/call-list', name: 'Call List', purpose: 'One-at-a-time call-prep mode working down the current queue.' },
-    { route: '#/bookings', name: 'Bookings', purpose: 'Setmore appointments: Today/Tomorrow/Upcoming/Recently Completed.' },
+    { route: '#/calendar', name: 'Calendar', purpose: 'Month-grid view of Setmore appointments (Today/Tomorrow/Upcoming/Recently Completed data, click a day for full detail).' },
     { route: '#/reactivation', name: 'Reactivation', purpose: 'The reactivation bucket as its own page.' },
     { route: '#/maintenance', name: 'Maintenance', purpose: 'The maintenance_due bucket as its own page.' },
     { route: '#/analytics', name: 'Analytics', purpose: 'Trustworthy-only KPIs — deliberately excludes anything the underlying data can\'t support yet.' },
@@ -39,6 +39,7 @@ const APP_MANIFEST = {
     'Setmore appointment status always syncs as "confirmed" — there is no completed/cancelled/no-show signal in the data.',
     'Only ~5% of contacts have a city on file, and of those, some are clearly outside the Bay Area — no service-area rule exists yet.',
     'Dispositions (sales_dispositions table) are new and still have very little history — any "why leads don\'t book" analysis is based on a small sample and should be reported with that caveat.',
+    'The Lead Profile "Availability — Next Openings" card is a live call to the public Booking Worker for one representative service key (matched from the lead\'s service text, or a Sedan/Coupe default) — it is a duration estimate, not a per-vehicle-size-accurate booking guarantee. See sales-api/availability.js.',
   ],
 };
 
