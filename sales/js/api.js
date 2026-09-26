@@ -68,6 +68,7 @@ export const api = {
   lead:           (id) => get(`/api/sales/leads/${id}`),
   timeline:       (id) => get(`/api/sales/leads/${id}/timeline`),
   availability:   (id) => get(`/api/sales/leads/${id}/availability`),
+  bookAppointment: (id, payload) => post(`/api/sales/leads/${id}/book`, payload),
   conversation:   (id) => get(`/api/sales/leads/${id}/conversations`),
   sendMessage:    (id, message) => post(`/api/sales/leads/${id}/send-message`, { message }),
   addNote:        (id, body) => post(`/api/sales/leads/${id}/notes`, { body }),

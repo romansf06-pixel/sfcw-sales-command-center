@@ -19,6 +19,7 @@ const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBook
 const { classifyMessage } = require('./intent');
 const { analyzeCall } = require('../sales-ai/call-coaching');
 const { resolveServiceKey, getRecommendedSlots } = require('./availability');
+const { createBooking, SERVICE_LABELS, VEHICLE_LABELS } = require('./booking');
 
 module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, getAI, syncNow, readData }) {
   const router = express.Router();
@@ -181,6 +182,38 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }
+  });
+
+  // ── Book — v1, base packages only (no add-ons/ceramic; see sales-api/booking.js
+  // header). Creates a REAL Setmore appointment via the same public Worker the
+  // main dashboard's Instant Booking widget uses. staffOverride is passed
+  // through verbatim from the browser's own localStorage (sfcw_staff_override,
+  // same key the main dashboard reads — same origin, shared storage) — this
+  // route never needs to know the secret itself.
+  router.post('/leads/:id/book', async (req, res) => {
+    const lead = getLeadDetail(dbModule, req.params.id);
+    if (!lead) return res.status(404).json({ ok: false, error: 'Lead not found' });
+    const { serviceType, vehicleClass, date, time, address, total, note, staffOverride } = req.body || {};
+    if (!SERVICE_LABELS[serviceType]) return res.status(400).json({ ok: false, error: `serviceType must be one of ${Object.keys(SERVICE_LABELS).join(', ')}` });
+    if (!VEHICLE_LABELS[vehicleClass]) return res.status(400).json({ ok: false, error: `vehicleClass must be one of ${Object.keys(VEHICLE_LABELS).join(', ')}` });
+    if (!date || !time) return res.status(400).json({ ok: false, error: 'date and time required' });
+    if (!lead.firstName || !lead.phone) return res.status(400).json({ ok: false, error: 'This lead is missing a first name or phone number — Setmore requires both to book.' });
+
+    const result = await createBooking({
+      axios, serviceType, vehicleClass, date, time, address, note, total: total || null, staffOverride,
+      firstName: lead.firstName, lastName: lead.lastName || '', email: lead.email || '', phone: lead.phone,
+    });
+    if (!result.ok) return res.status(502).json(result);
+
+    // Confirmed with the owner (2026-09-26): a successful booking auto-logs a
+    // "Booked" disposition so it's reflected in the queue/Analytics without an
+    // extra click.
+    const disposition = dbModule.addDisposition({
+      contact_id: req.params.id, rep_id: repId(req), disposition: 'booked',
+      note: `Booked via Sales Command Center — ${SERVICE_LABELS[serviceType]} (${VEHICLE_LABELS[vehicleClass]}), ${date} ${time}`,
+      lead_temperature: null, created_at: Date.now(),
+    });
+    res.json({ ok: true, booking: result.data, disposition });
   });
 
   // ── Call coaching ─────────────────────────────────────────────────────────

@@ -2,7 +2,13 @@ import { api } from '../api.js';
 import { escapeHtml, fmtAgo, fmtDateTime, fmtDate, DISPOSITIONS, toast } from '../util.js';
 import { openFollowupModal } from '../components/modal.js';
 import { navigate } from '../main.js';
-import { renderPricingCard, buildCallScript, buildUpsellNotes } from '../pricing.js';
+import { renderPricingCard, buildCallScript, buildUpsellNotes, BASE_PACKAGES } from '../pricing.js';
+
+// Same origin as the main dashboard (both served by this same server.js), so
+// this localStorage key is already shared — if the staff key was pasted in
+// once from the main dashboard's "Instant Booking" widget, it just works
+// here too. See index.html's BK_STAFF_KEY_STORE / bkSetStaffKey.
+const STAFF_KEY_STORE = 'sfcw_staff_override';
 
 function fmtTime12(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -147,6 +153,31 @@ export async function mount(root, id) {
         </div>
 
         <div class="card">
+          <div class="card-title">Book Appointment</div>
+          <div class="lead-meta" style="margin-bottom:8px;">Base packages only — note any add-ons below, they won't be added to the appointment automatically yet. Click a time above to fill in the date/time, or enter your own.</div>
+          <div class="book-form">
+            <select id="bk-service">
+              <option value="interior">Interior — from $${BASE_PACKAGES[0].sedan}</option>
+              <option value="full">Full Package — from $${BASE_PACKAGES[1].sedan}</option>
+              <option value="exterior">Exterior — from $${BASE_PACKAGES[2].sedan}</option>
+            </select>
+            <select id="bk-vehicle">
+              <option value="sedan">Sedan / Coupe</option>
+              <option value="midsize">Midsize SUV / Crossover</option>
+              <option value="large">Large SUV / Truck / Minivan</option>
+            </select>
+            <input type="date" id="bk-date">
+            <input type="time" id="bk-time">
+            <input type="text" id="bk-address" placeholder="Job address">
+            <input type="number" id="bk-price" placeholder="Price" min="0" step="5">
+            <textarea id="bk-note" placeholder="Note (add-ons, anything Setmore should know)"></textarea>
+          </div>
+          <div id="bk-staff-key-status" class="lead-meta" style="margin:8px 0;"></div>
+          <button class="btn primary" id="bk-book-btn" style="width:100%;">Book Appointment</button>
+          <div id="bk-book-result"></div>
+        </div>
+
+        <div class="card">
           <div class="card-title">Log Outcome (Disposition)</div>
           <div class="disp-grid">
             ${DISPOSITIONS.map(([val, label]) => `<button class="btn disp-btn" data-disposition="${val}">${escapeHtml(label)}</button>`).join('')}
@@ -261,7 +292,7 @@ export async function mount(root, id) {
           <div class="avail-day">
             <div class="avail-date">${escapeHtml(fmtWeekdayDate(d.date))}</div>
             <div class="avail-times">
-              ${d.times.map(t => `<span class="avail-chip">${escapeHtml(fmtTime12(t))}</span>`).join('')}
+              ${d.times.map(t => `<button type="button" class="avail-chip" data-action="pick-slot" data-date="${d.date}" data-time="${t}">${escapeHtml(fmtTime12(t))}</button>`).join('')}
               ${d.totalOpen > d.times.length ? `<span class="avail-more">+${d.totalOpen - d.times.length} more</span>` : ''}
             </div>
           </div>`;
@@ -285,6 +316,12 @@ export async function mount(root, id) {
       <div class="avail-days">${(r.days || []).map(dayRow).join('')}</div>
       ${r.days?.some(d => !d.checked) ? `<div class="lead-meta" style="margin-top:8px;">Some days couldn't be verified live — call ${escapeHtml(r.supportPhone || '')} to confirm those.</div>` : ''}
     `;
+    el.querySelectorAll('[data-action="pick-slot"]').forEach(chip => chip.addEventListener('click', () => {
+      const dateInput = root.querySelector('#bk-date'), timeInput = root.querySelector('#bk-time');
+      if (dateInput) dateInput.value = chip.dataset.date;
+      if (timeInput) timeInput.value = chip.dataset.time;
+      toast(`Filled in ${fmtWeekdayDate(chip.dataset.date)} at ${fmtTime12(chip.dataset.time)}`);
+    }));
   }).catch(() => {
     if (root.dataset.leadId !== id) return;
     const el = root.querySelector('#lp-availability');
@@ -315,6 +352,58 @@ export async function mount(root, id) {
   root.querySelector('#lp-ask-copilot').addEventListener('click', () => {
     sessionStorage.setItem('copilotSeed', `Tell me about lead id ${id} (${lead.name}) — what's the situation and what should I do next?`);
     navigate('#/copilot');
+  });
+
+  // ── Book Appointment ────────────────────────────────────────────────────
+  const bkServiceEl = root.querySelector('#bk-service'), bkVehicleEl = root.querySelector('#bk-vehicle'), bkPriceEl = root.querySelector('#bk-price');
+  const bkPackages = { interior: BASE_PACKAGES[0], full: BASE_PACKAGES[1], exterior: BASE_PACKAGES[2] };
+  function bkUpdatePrice() {
+    const pkg = bkPackages[bkServiceEl.value];
+    if (pkg) bkPriceEl.value = pkg[bkVehicleEl.value] ?? '';
+  }
+  bkServiceEl.addEventListener('change', bkUpdatePrice);
+  bkVehicleEl.addEventListener('change', bkUpdatePrice);
+  bkUpdatePrice();
+
+  function bkStaffKey() { try { return localStorage.getItem(STAFF_KEY_STORE) || ''; } catch { return ''; } }
+  function renderStaffKeyStatus() {
+    const el = root.querySelector('#bk-staff-key-status');
+    if (!el) return;
+    const key = bkStaffKey();
+    el.innerHTML = key
+      ? `Staff key set for this browser — <span data-action="clear-staff-key" style="color:var(--accent-l);cursor:pointer;">clear</span>`
+      : `No staff key set — bookings will follow customer-facing scheduling rules (lead time, buffers). <span data-action="set-staff-key" style="color:var(--accent-l);cursor:pointer;">Set staff key</span>`;
+    el.querySelector('[data-action="set-staff-key"]')?.addEventListener('click', () => {
+      const val = (prompt('Paste the STAFF_OVERRIDE_KEY from the Worker (same one used in the main dashboard):') || '').trim();
+      if (val) { try { localStorage.setItem(STAFF_KEY_STORE, val); } catch {} renderStaffKeyStatus(); }
+    });
+    el.querySelector('[data-action="clear-staff-key"]')?.addEventListener('click', () => {
+      try { localStorage.removeItem(STAFF_KEY_STORE); } catch {} renderStaffKeyStatus();
+    });
+  }
+  renderStaffKeyStatus();
+
+  root.querySelector('#bk-book-btn').addEventListener('click', async () => {
+    const payload = {
+      serviceType: bkServiceEl.value, vehicleClass: bkVehicleEl.value,
+      date: root.querySelector('#bk-date').value, time: root.querySelector('#bk-time').value,
+      address: root.querySelector('#bk-address').value.trim(),
+      total: parseFloat(bkPriceEl.value) || null,
+      note: root.querySelector('#bk-note').value.trim(),
+      staffOverride: bkStaffKey(),
+    };
+    if (!payload.date || !payload.time) { toast('Pick a date and time first — click an available slot above or enter your own'); return; }
+    const btn = root.querySelector('#bk-book-btn');
+    btn.disabled = true; btn.textContent = 'Booking…';
+    root.querySelector('#bk-book-result').innerHTML = '';
+    try {
+      await api.bookAppointment(id, payload);
+      toast('Appointment booked — "Booked" disposition logged');
+      mount(root, id);
+    } catch (e) {
+      root.querySelector('#bk-book-result').innerHTML = `<div class="empty-state" style="color:var(--red);">${escapeHtml(e.message)}</div>`;
+      btn.disabled = false; btn.textContent = 'Book Appointment';
+    }
   });
 
   root.querySelector('#lp-note-save').addEventListener('click', async () => {
