@@ -11,6 +11,7 @@ const APP_MANIFEST = {
     { route: '#/queue', name: 'My Queue', purpose: 'Full prioritized list across all buckets. Each lead card has a "Handled by" toggle (Kieran/Roman/Sebas, shared/visible to the whole team) and can be dragged onto the global trash icon (bottom-right, every page) to archive it one-way — no restore, click the icon to see what\'s there.' },
     { route: '#/messages', name: 'Conversations', purpose: 'Every recent conversation/call-log entry, filterable, not just actionable ones.' },
     { route: '#/leads', name: 'Leads', purpose: 'Full searchable/filterable table over all contacts.' },
+    { route: '#/form-submits', name: 'Form Submits', purpose: 'Website quote-form leads (source=lead_form), most recent first.' },
     { route: '#/lead/:id', name: 'Lead Profile', purpose: 'Everything known about one lead: conversation, timeline, notes, dispositions, follow-ups, booking status, live availability, AI actions.' },
     { route: '#/followups', name: 'Follow-Ups', purpose: 'Overdue and upcoming manually-set follow-ups.' },
     { route: '#/calendar', name: 'Calendar', purpose: 'Month-grid view of Setmore appointments (Today/Tomorrow/Upcoming/Recently Completed data, click a day for full detail).' },

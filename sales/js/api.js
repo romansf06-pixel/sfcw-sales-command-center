@@ -81,6 +81,7 @@ export const api = {
   setHandledBy:   (id, handledBy) => post(`/api/sales/leads/${id}/handled-by`, { handledBy }),
   trashLead:      (id) => post(`/api/sales/leads/${id}/trash`),
   trash:          () => get('/api/sales/trash'),
+  formSubmits:    () => get('/api/sales/form-submits'),
   search:         (q) => get('/api/sales/search', { q }),
   messages:       (platform) => get('/api/sales/messages', { platform }),
   bookings:       () => get('/api/sales/bookings'),

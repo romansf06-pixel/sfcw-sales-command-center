@@ -4,6 +4,7 @@ const ITEMS = [
   { route: '#/copilot', label: 'AI Copilot' },
   { route: '#/messages', label: 'Conversations' },
   { route: '#/leads', label: 'Leads' },
+  { route: '#/form-submits', label: 'Form Submits' },
   { route: '#/followups', label: 'Follow-Ups' },
   { route: '#/calendar', label: 'Calendar' },
   { route: '#/reactivation', label: 'Reactivation', countKey: 'reactivation' },

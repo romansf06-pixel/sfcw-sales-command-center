@@ -8,6 +8,7 @@ import * as Queue from './views/queue.js';
 import * as Messages from './views/messages.js';
 import * as Copilot from './views/copilot.js';
 import * as Leads from './views/leads.js';
+import * as FormSubmits from './views/form-submits.js';
 import * as LeadProfile from './views/lead-profile.js';
 import * as Followups from './views/followups.js';
 import * as Calendar from './views/calendar.js';
@@ -54,8 +55,8 @@ function matchRoute(hash) {
   const leadMatch = hash.match(/^#\/lead\/(.+)$/);
   if (leadMatch) return { view: LeadProfile, params: [decodeURIComponent(leadMatch[1])] };
   const table = {
-    '#/queue': Queue, '#/messages': Messages, '#/copilot': Copilot, '#/leads': Leads, '#/followups': Followups,
-    '#/calendar': Calendar, '#/reactivation': Reactivation, '#/analytics': Analytics, '#/settings': Settings,
+    '#/queue': Queue, '#/messages': Messages, '#/copilot': Copilot, '#/leads': Leads, '#/form-submits': FormSubmits,
+    '#/followups': Followups, '#/calendar': Calendar, '#/reactivation': Reactivation, '#/analytics': Analytics, '#/settings': Settings,
   };
   return { view: table[hash] || CommandCenter, params: [] };
 }

@@ -15,7 +15,7 @@
 
 const express = require('express');
 const { computeQueue, DEFAULT_CONFIG, HOT_SIGNALS } = require('./priority');
-const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads } = require('./queries');
+const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads, getFormSubmits } = require('./queries');
 const { classifyMessage } = require('./intent');
 const { analyzeCall } = require('../sales-ai/call-coaching');
 const { resolveServiceKey, getRecommendedSlots } = require('./availability');
@@ -344,6 +344,11 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   });
   router.get('/trash', (_req, res) => {
     res.json({ ok: true, leads: getTrashedLeads(dbModule) });
+  });
+
+  // ── Form Submits — website quote-form leads, most recent first ──────────
+  router.get('/form-submits', (req, res) => {
+    res.json({ ok: true, leads: getFormSubmits(dbModule, { limit: Math.min(200, parseInt(req.query.limit) || 100) }) });
   });
 
   // ── Bookings — Setmore is the system that actually creates jobs; see

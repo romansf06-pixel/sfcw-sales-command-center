@@ -114,6 +114,20 @@ function getTrashedLeads(dbModule) {
   return rows.map(c => buildLead(dbModule, c));
 }
 
+// Website quote-form submissions, most recent first — source='lead_form' is
+// the one clean value for this (verified live: 1,936 of 2,948 contacts;
+// 'instagram', 'phone', 'manual' are the only others, none of them a form).
+// Excludes trashed leads, same as everywhere else a lead list is shown.
+function getFormSubmits(dbModule, { limit = 100 } = {}) {
+  const rows = dbModule.db.prepare(`
+    SELECT c.* FROM contacts c
+    LEFT JOIN sales_lead_state s ON s.contact_id = c.id
+    WHERE c.source = 'lead_form' AND (s.trashed_at IS NULL)
+    ORDER BY c.created_at DESC LIMIT ?
+  `).all(limit);
+  return rows.map(c => buildLead(dbModule, c));
+}
+
 const SORT_COLUMNS = {
   created: 'created_at', updated: 'updated_at', name: 'first_name', phone: 'phone',
 };
@@ -448,4 +462,4 @@ function globalSearch(dbModule, q, limit = 20) {
   return rows.map(r => buildLead(dbModule, r, { withEnrichment: false }));
 }
 
-module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads, fullName, matchMaintenance, primaryOpportunity, latestConversation };
+module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads, getFormSubmits, fullName, matchMaintenance, primaryOpportunity, latestConversation };
