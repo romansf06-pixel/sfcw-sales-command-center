@@ -115,6 +115,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .lead-reasons li { font-size: 12px; color: var(--text-dim); }
 .lead-reasons li::before { content: "› "; color: var(--accent); }
 .lead-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.handled-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.handled-label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+.handled-chip { background: transparent; border: 1px solid var(--border); color: var(--text-dim); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.handled-chip:hover { border-color: var(--border2); }
+.handled-chip.active { background: var(--accent-d); border-color: var(--accent); color: var(--accent-l); }
 .bucket-hdr { display: flex; align-items: center; gap: 8px; margin: 22px 0 10px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
 .bucket-hdr .dot { width: 8px; height: 8px; border-radius: 50%; }
 .empty-state { color: var(--muted); font-size: 12px; padding: 20px 0; text-align: center; }
@@ -176,6 +181,31 @@ table.leads tr:hover td { background: rgba(255,255,255,.02); }
 .cal-chip.past { opacity: .6; }
 .cal-more { font-size: 10px; color: var(--muted); }
 .cal-detail-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Conversations — real-texts-style thread list ───────────────────────── */
+.thread-list { display: flex; flex-direction: column; }
+.thread-row {
+  display: flex; gap: 12px; padding: 12px 6px; border-bottom: 1px solid var(--border);
+  cursor: pointer; align-items: flex-start;
+}
+.thread-row:hover { background: rgba(255,255,255,.02); }
+.thread-row:last-child { border-bottom: none; }
+.thread-avatar {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--card3);
+  color: var(--accent-l); font-weight: 800; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+}
+.thread-body { flex: 1; min-width: 0; }
+.thread-top { display: flex; justify-content: space-between; gap: 10px; }
+.thread-name { font-size: 14px; font-weight: 600; color: var(--text-dim); }
+.thread-name.unread { font-weight: 800; color: var(--text); }
+.thread-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.thread-preview {
+  font-size: 13px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.thread-preview.unread { color: var(--text-dim); font-weight: 600; }
+.thread-meta { margin-top: 5px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 /* ── Command palette / search ───────────────────────────────────────── */
 .palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }

@@ -1,8 +1,6 @@
 import { api } from '../api.js';
-import { renderLeadCard } from '../components/lead-card.js';
-import { openFollowupModal } from '../components/modal.js';
+import { renderLeadCard, wireLeadCards } from '../components/lead-card.js';
 import { BUCKET_META, escapeHtml, renderComplianceBanner, wireComplianceBanner } from '../util.js';
-import { navigate } from '../main.js';
 
 const ORDER = ['needs_reply', 'followup_due', 'new_lead', 'ready_to_book', 'quote_followup', 'awaiting_reply', 'maintenance_due', 'reactivation', 'nurture', 'cold_lead'];
 const COLLAPSED = ['low_priority_source', 'no_action_needed'];
@@ -55,9 +53,5 @@ export async function mount(root) {
       list.style.display = list.style.display === 'none' ? 'block' : 'none';
     });
   });
-  root.querySelectorAll('[data-lead-id]').forEach(card => {
-    const id = card.dataset.leadId;
-    card.querySelectorAll('[data-action="open"]').forEach(b => b.addEventListener('click', () => navigate(`#/lead/${id}`)));
-    card.querySelectorAll('[data-action="followup"]').forEach(b => b.addEventListener('click', () => openFollowupModal(id, () => mount(root))));
-  });
+  wireLeadCards(root, { onChanged: () => mount(root) });
 }

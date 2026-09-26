@@ -53,6 +53,7 @@ function buildLead(dbModule, contact, { withEnrichment = true } = {}) {
   const maintenance = withEnrichment ? matchMaintenance(dbModule, contact) : null;
   const openFollowup = withEnrichment ? dbModule.getOpenFollowupForContact(contact.id) : null;
   const lastDisposition = withEnrichment ? dbModule.getLastDispositionForContact(contact.id) : null;
+  const leadState = withEnrichment ? dbModule.getLeadState(contact.id) : null;
 
   return {
     id: contact.id,
@@ -95,7 +96,22 @@ function buildLead(dbModule, contact, { withEnrichment = true } = {}) {
     lastDisposition: lastDisposition ? {
       disposition: lastDisposition.disposition, note: lastDisposition.note, createdAt: lastDisposition.created_at,
     } : null,
+    handledBy: leadState ? leadState.handled_by : null,
+    trashedAt: leadState ? leadState.trashed_at : null,
   };
+}
+
+// One-way archive — see sales-api/routes.js POST /leads/:id/trash. priority.js
+// excludes these from every queue bucket, so this is the only place they're
+// still visible, most-recently-trashed first.
+function getTrashedLeads(dbModule) {
+  const rows = dbModule.db.prepare(`
+    SELECT c.* FROM contacts c
+    JOIN sales_lead_state s ON s.contact_id = c.id
+    WHERE s.trashed_at IS NOT NULL
+    ORDER BY s.trashed_at DESC
+  `).all();
+  return rows.map(c => buildLead(dbModule, c));
 }
 
 const SORT_COLUMNS = {
@@ -217,22 +233,57 @@ function getLeadTimeline(dbModule, contactId) {
 // recent cache the queue engine reads (GHL's conversations/search endpoint
 // has no pagination, so "most recent 100" is the practical ceiling — see
 // syncGHLConversations in server.js).
+// Unified activity feed: GHL conversations + Setmore bookings, merged and
+// deduped to the single most recent event PER PERSON — a customer who both
+// texted and has a booking on file should show up once, not twice. Setmore
+// never returns a GHL contact id (see booking-source.js), so bookings are
+// matched back to a contact by phone where possible; if no contact matches,
+// the booking still gets its own row keyed by phone so it isn't dropped.
 function getRecentMessages(dbModule, { limit = 100, platform = '' } = {}) {
-  const where = platform ? `WHERE v.platform = @platform` : '';
-  const rows = dbModule.db.prepare(`
+  const byPerson = new Map();
+
+  const convoRows = dbModule.db.prepare(`
     SELECT v.*, c.first_name, c.last_name, c.vehicle, c.service, c.source
     FROM conversations v LEFT JOIN contacts c ON c.id = v.contact_id
-    ${where}
-    ORDER BY v.last_msg_at DESC LIMIT @limit
-  `).all({ platform, limit });
+    WHERE v.contact_id IS NOT NULL
+    ORDER BY v.last_msg_at DESC
+  `).all();
+  for (const r of convoRows) {
+    const existing = byPerson.get(r.contact_id);
+    if (existing && existing.at >= (r.last_msg_at || 0)) continue;
+    byPerson.set(r.contact_id, {
+      contactId: r.contact_id,
+      name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
+      vehicle: r.vehicle, service: r.service, source: r.source,
+      kind: 'message', platform: r.platform, direction: r.last_message_direction,
+      preview: r.last_message || '(no text — image/attachment)',
+      at: r.last_msg_at || 0, unread: r.unread,
+    });
+  }
 
-  return rows.map(r => ({
-    contactId: r.contact_id,
-    name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
-    vehicle: r.vehicle, service: r.service, source: r.source,
-    platform: r.platform, direction: r.last_message_direction,
-    lastMessage: r.last_message, lastMessageAt: r.last_msg_at, unread: r.unread,
-  }));
+  const contactByPhone = new Map();
+  for (const c of dbModule.db.prepare(`SELECT id, phone, first_name, last_name, vehicle, service, source FROM contacts WHERE phone IS NOT NULL`).all()) {
+    contactByPhone.set(phoneDigits(c.phone), c);
+  }
+  for (const b of dbModule.db.prepare(`SELECT * FROM bookings WHERE phone IS NOT NULL`).all()) {
+    const match = contactByPhone.get(phoneDigits(b.phone));
+    const key = match ? match.id : `phone:${phoneDigits(b.phone)}`;
+    const at = b.starts_at || 0;
+    const existing = byPerson.get(key);
+    if (existing && existing.at >= at) continue;
+    byPerson.set(key, {
+      contactId: match ? match.id : null,
+      name: (match ? [match.first_name, match.last_name].filter(Boolean).join(' ').trim() : '') || b.customer_name || 'Unknown',
+      vehicle: match ? match.vehicle : null, service: b.service, source: match ? match.source : null,
+      kind: 'booking', platform: 'setmore', direction: null,
+      preview: `Booked: ${b.service || 'a service'} — ${new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+      at, unread: 0,
+    });
+  }
+
+  let rows = [...byPerson.values()].sort((a, b) => b.at - a.at);
+  if (platform) rows = rows.filter(r => r.platform === platform);
+  return rows.slice(0, limit);
 }
 
 // Bookings overview — Setmore is the system that actually creates jobs (see
@@ -319,4 +370,4 @@ function globalSearch(dbModule, q, limit = 20) {
   return rows.map(r => buildLead(dbModule, r, { withEnrichment: false }));
 }
 
-module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch, fullName, matchMaintenance, primaryOpportunity, latestConversation };
+module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch, getTrashedLeads, fullName, matchMaintenance, primaryOpportunity, latestConversation };

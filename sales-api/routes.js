@@ -14,7 +14,7 @@
 
 const express = require('express');
 const { computeQueue, DEFAULT_CONFIG } = require('./priority');
-const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch } = require('./queries');
+const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch, getTrashedLeads } = require('./queries');
 const { classifyMessage } = require('./intent');
 const { analyzeCall } = require('../sales-ai/call-coaching');
 const { resolveServiceKey, getRecommendedSlots } = require('./availability');
@@ -219,8 +219,34 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   // ── Snooze / manual priority override ────────────────────────────────────
   router.post('/leads/:id/snooze', (req, res) => {
     const { untilMs } = req.body || {};
-    const state = dbModule.setLeadState({ contact_id: req.params.id, rep_id: repId(), snoozed_until: Number(untilMs) || null });
+    const state = dbModule.setLeadState({ contact_id: req.params.id, snoozed_until: Number(untilMs) || null });
     res.json({ ok: true, state });
+  });
+
+  // ── Handled By — a shared, visible-to-everyone marker (not per-viewer
+  // ownership), since the whole team works the same queue. Fixed set of
+  // names rather than free text so it can only ever be one of the actual
+  // people using this app. Passing handledBy: null clears it.
+  const HANDLED_BY_NAMES = ['Kieran', 'Roman', 'Sebas'];
+  router.post('/leads/:id/handled-by', (req, res) => {
+    const { handledBy } = req.body || {};
+    if (handledBy !== null && !HANDLED_BY_NAMES.includes(handledBy)) {
+      return res.status(400).json({ ok: false, error: `handledBy must be one of ${HANDLED_BY_NAMES.join(', ')}, or null` });
+    }
+    const state = dbModule.setLeadState({ contact_id: req.params.id, handled_by: handledBy });
+    res.json({ ok: true, state });
+  });
+
+  // ── Trash — one-way archive. Once set, priority.js excludes the contact
+  // from every queue bucket entirely; there is no restore endpoint by design
+  // (see conversation 2026-09-25 — this was an explicit choice, not an
+  // oversight, if a restore path is ever wanted it's a new decision).
+  router.post('/leads/:id/trash', (req, res) => {
+    const state = dbModule.setLeadState({ contact_id: req.params.id, trashed_at: Date.now() });
+    res.json({ ok: true, state });
+  });
+  router.get('/trash', (_req, res) => {
+    res.json({ ok: true, leads: getTrashedLeads(dbModule) });
   });
 
   // ── Bookings — Setmore is the system that actually creates jobs; see

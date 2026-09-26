@@ -532,6 +532,11 @@ CREATE TABLE IF NOT EXISTS call_coaching (
 CREATE INDEX IF NOT EXISTS idx_call_coaching_contact ON call_coaching(contact_id, created_at DESC);
 `);
 
+// sales_lead_state predates these two columns — must run after the CREATE
+// TABLE above, not with the other ensureColumn() calls earlier in this file.
+ensureColumn('sales_lead_state', 'handled_by', 'TEXT');  // one of the fixed team names — see sales-api/routes.js HANDLERS
+ensureColumn('sales_lead_state', 'trashed_at', 'INTEGER'); // set = permanently out of every queue bucket (priority.js skips it)
+
 // Seed integration rows so health check can track them
 const integrationDefaults = [
   { id: 'meta',      name: 'Meta Ads',          api_version: 'v19.0' },
@@ -920,11 +925,12 @@ const salesStmts = {
   `),
 
   upsertLeadState: db.prepare(`
-    INSERT INTO sales_lead_state (contact_id, rep_id, priority_override, snoozed_until, updated_at)
-    VALUES (@contact_id, @rep_id, @priority_override, @snoozed_until, @updated_at)
+    INSERT INTO sales_lead_state (contact_id, rep_id, priority_override, snoozed_until, handled_by, trashed_at, updated_at)
+    VALUES (@contact_id, @rep_id, @priority_override, @snoozed_until, @handled_by, @trashed_at, @updated_at)
     ON CONFLICT(contact_id) DO UPDATE SET
       rep_id=excluded.rep_id, priority_override=excluded.priority_override,
-      snoozed_until=excluded.snoozed_until, updated_at=excluded.updated_at
+      snoozed_until=excluded.snoozed_until, handled_by=excluded.handled_by,
+      trashed_at=excluded.trashed_at, updated_at=excluded.updated_at
   `),
   getLeadState: db.prepare(`SELECT * FROM sales_lead_state WHERE contact_id=?`),
 
@@ -983,8 +989,17 @@ function getDispositionsForContact(contactId) { return salesStmts.dispositionsBy
 function getLastDispositionForContact(contactId) { return salesStmts.lastDispositionForContact.get(contactId) || null; }
 function getCallAttemptCount(contactId) { return salesStmts.callAttemptCount.get(contactId).n; }
 
+// Partial update, not a blind overwrite — a caller setting only `handled_by`
+// (e.g. the "Handled by" toggle) must not silently wipe out an unrelated
+// existing snooze or trash state, and vice versa. Reads the current row
+// first and only replaces the fields the caller actually passed.
 function setLeadState(row) {
-  salesStmts.upsertLeadState.run({ priority_override: null, snoozed_until: null, ...row, updated_at: Date.now() });
+  const existing = salesStmts.getLeadState.get(row.contact_id) || {};
+  const merged = {
+    rep_id: null, priority_override: null, snoozed_until: null, handled_by: null, trashed_at: null,
+    ...existing, ...row, updated_at: Date.now(),
+  };
+  salesStmts.upsertLeadState.run(merged);
   return salesStmts.getLeadState.get(row.contact_id);
 }
 function getLeadState(contactId) { return salesStmts.getLeadState.get(contactId) || null; }

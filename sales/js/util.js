@@ -49,6 +49,10 @@ export const DISPOSITIONS = [
   ['wrong_number', 'Wrong Number'], ['do_not_contact', 'Do Not Contact'], ['lost', 'Lost'],
 ];
 
+// Keep in sync with HANDLED_BY_NAMES in sales-api/routes.js — the backend
+// validates against that list, this is just what renders the chips.
+export const HANDLED_BY_NAMES = ['Kieran', 'Roman', 'Sebas'];
+
 export const FOLLOWUP_PRESETS = [
   ['Later today', 3 * 3600e3], ['Tomorrow', 24 * 3600e3], ['2 days', 2 * 86400e3],
   ['3 days', 3 * 86400e3], ['1 week', 7 * 86400e3],

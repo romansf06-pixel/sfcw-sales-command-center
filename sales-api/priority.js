@@ -155,6 +155,7 @@ function computeQueue(dbModule, overrides = {}) {
     if (disposition && ['do_not_contact', 'lost', 'wrong_number'].includes(disposition.disposition)) continue;
 
     const state = leadStateByContact.get(c.id);
+    if (state && state.trashed_at) continue; // one-way archive — see sales-api/routes.js POST /leads/:id/trash
     if (state && state.snoozed_until && state.snoozed_until > now) continue;
 
     const tags = parseTags(c.tags);
@@ -185,6 +186,7 @@ function computeQueue(dbModule, overrides = {}) {
       id: c.id, name: [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || c.phone || 'Unknown',
       phone: c.phone, vehicle: c.vehicle, service: c.service,
       stage: opp ? opp.stage : null, pipeline: opp ? opp.pipeline : null, source: c.source,
+      handledBy: state ? state.handled_by : null,
     };
 
     // 1. Social-media comment-automation contacts (e.g. "process commenter")

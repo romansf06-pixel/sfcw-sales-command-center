@@ -117,7 +117,7 @@ function buildTools({ dbModule, axios, GHL_BASE, GHL_LOCATION, ghlHeaders, readD
       name: 'navigate',
       description: 'Suggest the user open a specific page or lead in the app. This does NOT perform the navigation — it surfaces a clickable button for the user. Use whenever the user asks to "open", "take me to", or "show me" a page or a specific person.',
       input_schema: { type: 'object', properties: {
-        route: { type: 'string', description: 'App hash route, e.g. "#/lead/abc123", "#/queue", "#/followups", "#/inbox"' },
+        route: { type: 'string', description: 'App hash route, e.g. "#/lead/abc123", "#/queue", "#/followups", "#/trash"' },
         label: { type: 'string', description: 'Short button label, e.g. "Open Jason\'s profile"' },
       }, required: ['route', 'label'] },
     },

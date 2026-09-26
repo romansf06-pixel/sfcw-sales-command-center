@@ -8,14 +8,14 @@
 const APP_MANIFEST = {
   pages: [
     { route: '#/', name: 'Command Center', purpose: 'Landing page — today\'s counts, Next Best Action, daily brief.' },
-    { route: '#/queue', name: 'My Queue', purpose: 'Full prioritized list across all buckets.' },
-    { route: '#/inbox', name: 'Inbox', purpose: 'Just the Needs Reply bucket.' },
+    { route: '#/queue', name: 'My Queue', purpose: 'Full prioritized list across all buckets. Each lead card has a "Handled by" toggle (Kieran/Roman/Sebas, shared/visible to the whole team) and a Trash button (one-way archive, no restore).' },
     { route: '#/messages', name: 'Conversations', purpose: 'Every recent conversation/call-log entry, filterable, not just actionable ones.' },
     { route: '#/leads', name: 'Leads', purpose: 'Full searchable/filterable table over all contacts.' },
     { route: '#/lead/:id', name: 'Lead Profile', purpose: 'Everything known about one lead: conversation, timeline, notes, dispositions, follow-ups, booking status, live availability, AI actions.' },
     { route: '#/followups', name: 'Follow-Ups', purpose: 'Overdue and upcoming manually-set follow-ups.' },
     { route: '#/call-list', name: 'Call List', purpose: 'One-at-a-time call-prep mode working down the current queue.' },
     { route: '#/calendar', name: 'Calendar', purpose: 'Month-grid view of Setmore appointments (Today/Tomorrow/Upcoming/Recently Completed data, click a day for full detail).' },
+    { route: '#/trash', name: 'Trash', purpose: 'Leads anyone has moved to Trash from the queue — permanently excluded from every bucket, kept here for reference only. No restore action.' },
     { route: '#/reactivation', name: 'Reactivation', purpose: 'The reactivation bucket as its own page.' },
     { route: '#/maintenance', name: 'Maintenance', purpose: 'The maintenance_due bucket as its own page.' },
     { route: '#/analytics', name: 'Analytics', purpose: 'Trustworthy-only KPIs — deliberately excludes anything the underlying data can\'t support yet.' },

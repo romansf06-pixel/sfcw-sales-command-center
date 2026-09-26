@@ -1,6 +1,5 @@
 import { api } from '../api.js';
-import { renderLeadCard } from '../components/lead-card.js';
-import { openFollowupModal } from '../components/modal.js';
+import { renderLeadCard, wireLeadCards } from '../components/lead-card.js';
 import { BUCKET_META, escapeHtml, renderComplianceBanner, wireComplianceBanner } from '../util.js';
 import { navigate } from '../main.js';
 
@@ -42,11 +41,7 @@ export async function mount(root) {
   root.querySelector('#cc-refresh').addEventListener('click', () => mount(root));
   wireComplianceBanner(root, () => mount(root));
   root.querySelectorAll('[data-jump]').forEach(el => el.addEventListener('click', () => navigate('#/queue')));
-  root.querySelectorAll('[data-lead-id]').forEach(card => {
-    const id = card.dataset.leadId;
-    card.querySelectorAll('[data-action="open"]').forEach(b => b.addEventListener('click', () => navigate(`#/lead/${id}`)));
-    card.querySelectorAll('[data-action="followup"]').forEach(b => b.addEventListener('click', () => openFollowupModal(id, () => mount(root))));
-  });
+  wireLeadCards(root, { onChanged: () => mount(root) });
 
   // Non-blocking: the rest of the page is already useful even if this is slow or unavailable.
   api.dailyBrief().then(r => {

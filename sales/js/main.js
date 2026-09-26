@@ -5,7 +5,6 @@ import { toast } from './util.js';
 
 import * as CommandCenter from './views/command-center.js';
 import * as Queue from './views/queue.js';
-import * as Inbox from './views/inbox.js';
 import * as Messages from './views/messages.js';
 import * as Copilot from './views/copilot.js';
 import * as Leads from './views/leads.js';
@@ -14,6 +13,7 @@ import * as Followups from './views/followups.js';
 import * as CallList from './views/call-list.js';
 import * as Scripts from './views/scripts.js';
 import * as Calendar from './views/calendar.js';
+import * as Trash from './views/trash.js';
 import * as Analytics from './views/analytics.js';
 import * as Settings from './views/settings.js';
 import { makeBucketView } from './views/bucket-view.js';
@@ -34,8 +34,8 @@ function matchRoute(hash) {
   const leadMatch = hash.match(/^#\/lead\/(.+)$/);
   if (leadMatch) return { view: LeadProfile, params: [decodeURIComponent(leadMatch[1])] };
   const table = {
-    '#/queue': Queue, '#/inbox': Inbox, '#/messages': Messages, '#/copilot': Copilot, '#/leads': Leads, '#/followups': Followups,
-    '#/call-list': CallList, '#/scripts': Scripts, '#/calendar': Calendar, '#/reactivation': Reactivation,
+    '#/queue': Queue, '#/messages': Messages, '#/copilot': Copilot, '#/leads': Leads, '#/followups': Followups,
+    '#/call-list': CallList, '#/scripts': Scripts, '#/calendar': Calendar, '#/trash': Trash, '#/reactivation': Reactivation,
     '#/maintenance': Maintenance, '#/analytics': Analytics, '#/settings': Settings,
   };
   return { view: table[hash] || CommandCenter, params: [] };

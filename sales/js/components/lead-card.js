@@ -1,4 +1,7 @@
-import { escapeHtml, fmtAgo } from '../util.js';
+import { escapeHtml, fmtAgo, HANDLED_BY_NAMES, toast } from '../util.js';
+import { api } from '../api.js';
+import { openFollowupModal } from './modal.js';
+import { navigate } from '../main.js';
 
 // Renders one queue/lead card as an HTML string. Buttons carry data-action +
 // data-lead-id so the containing view can wire ONE delegated click listener
@@ -18,6 +21,10 @@ export function renderLeadCard(lead) {
   const lowConfidence = lead.intent?.confidence === 'low'
     ? `<span class="pill" style="border-color:var(--muted);color:var(--muted);">verify</span>` : '';
 
+  const handledChips = HANDLED_BY_NAMES.map(n => `
+    <button class="handled-chip${lead.handledBy === n ? ' active' : ''}" data-handled-by="${escapeHtml(n)}">${escapeHtml(n)}</button>
+  `).join('');
+
   return `
   <div class="lead-card" data-lead-id="${lead.id}">
     <div class="lead-top">
@@ -29,10 +36,47 @@ export function renderLeadCard(lead) {
     </div>
     ${quoteLine}
     <ul class="lead-reasons">${reasons}</ul>
+    <div class="handled-row">
+      <span class="handled-label">Handled by</span>
+      ${handledChips}
+    </div>
     <div class="lead-actions">
       <button class="btn" data-action="open">Open Lead</button>
       ${lead.phone ? `<a class="btn" href="tel:${escapeHtml(lead.phone)}">Call</a>` : ''}
       <button class="btn" data-action="followup">Set Follow-Up</button>
+      <button class="btn danger" data-action="trash" title="Move to Trash">Trash</button>
     </div>
   </div>`;
+}
+
+// Shared click-wiring for every view that renders a list of renderLeadCard()
+// output (Queue, Command Center, the bucket views) — kept in one place so
+// "Handled by" / Trash don't need re-wiring by hand in three files. Pass
+// onChanged to control what happens after a Trash/Handled-by/Follow-up action
+// (e.g. re-mount the page); omitted, Trash just removes the card from the DOM
+// and Handled-by toggles its own chip in place.
+export function wireLeadCards(root, { onChanged } = {}) {
+  root.querySelectorAll('[data-lead-id]').forEach(card => {
+    const id = card.dataset.leadId;
+    card.querySelectorAll('[data-action="open"]').forEach(b => b.addEventListener('click', () => navigate(`#/lead/${id}`)));
+    card.querySelectorAll('[data-action="followup"]').forEach(b => b.addEventListener('click', () => openFollowupModal(id, onChanged)));
+
+    card.querySelectorAll('[data-handled-by]').forEach(chip => chip.addEventListener('click', async () => {
+      const name = chip.dataset.handledBy;
+      const wasActive = chip.classList.contains('active');
+      try {
+        await api.setHandledBy(id, wasActive ? null : name);
+        if (onChanged) { onChanged(); return; }
+        card.querySelectorAll('[data-handled-by]').forEach(c => c.classList.toggle('active', c === chip && !wasActive));
+      } catch (e) { toast(e.message); }
+    }));
+
+    card.querySelectorAll('[data-action="trash"]').forEach(b => b.addEventListener('click', async () => {
+      try {
+        await api.trashLead(id);
+        toast('Moved to Trash');
+        if (onChanged) onChanged(); else card.remove();
+      } catch (e) { toast(e.message); }
+    }));
+  });
 }
