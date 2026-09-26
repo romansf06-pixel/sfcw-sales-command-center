@@ -536,6 +536,11 @@ CREATE INDEX IF NOT EXISTS idx_call_coaching_contact ON call_coaching(contact_id
 // TABLE above, not with the other ensureColumn() calls earlier in this file.
 ensureColumn('sales_lead_state', 'handled_by', 'TEXT');  // one of the fixed team names — see sales-api/routes.js HANDLERS
 ensureColumn('sales_lead_state', 'trashed_at', 'INTEGER'); // set = permanently out of every queue bucket (priority.js skips it)
+// Captured at disposition-log time (hot/warm/null), same HOT_SIGNALS rule
+// priority.js uses for the queue's HOT/WARM badge — lets Analytics compute
+// close % by warmth without needing to re-derive it from message history
+// later, since a lead's live intent classification changes over time.
+ensureColumn('sales_dispositions', 'lead_temperature', 'TEXT');
 
 // Seed integration rows so health check can track them
 const integrationDefaults = [
@@ -912,8 +917,8 @@ const salesStmts = {
   notesByContact: db.prepare(`SELECT * FROM sales_notes WHERE contact_id=? ORDER BY created_at DESC`),
 
   addDisposition: db.prepare(`
-    INSERT INTO sales_dispositions (contact_id, rep_id, disposition, note, created_at)
-    VALUES (@contact_id, @rep_id, @disposition, @note, @created_at)
+    INSERT INTO sales_dispositions (contact_id, rep_id, disposition, note, lead_temperature, created_at)
+    VALUES (@contact_id, @rep_id, @disposition, @note, @lead_temperature, @created_at)
   `),
   dispositionsByContact: db.prepare(`SELECT * FROM sales_dispositions WHERE contact_id=? ORDER BY created_at DESC`),
   lastDispositionForContact: db.prepare(`
@@ -949,13 +954,26 @@ const salesStmts = {
   deleteSavedView: db.prepare(`DELETE FROM sales_saved_views WHERE id=?`),
 };
 
-// Seed a single internal rep so the app works before any real auth/GHL user
-// linkage exists. ghl_user_id stays null until the CEO adds this person as a
-// GHL user — nothing else in the app needs to change when that happens.
+// Seed a fallback rep so the app works before any real auth/GHL user linkage
+// exists — used when no x-sales-rep header is sent (see sales-api/routes.js
+// repId()). ghl_user_id stays null until the CEO adds this person as a GHL
+// user — nothing else in the app needs to change when that happens.
 salesStmts.upsertRep.run({
   id: DEFAULT_REP_ID, name: 'Sales Rep', email: null, ghl_user_id: null,
   active: 1, created_at: Date.now(),
 });
+
+// The three real people using this app (2026-09-26) — the ids here (lowercase
+// names) are exactly what the "who's using this browser" picker sends as the
+// x-sales-rep header. Keep in sync with HANDLED_BY_NAMES in sales-api/routes.js
+// and sales/js/util.js (the separate, per-lead "Handled by" marker — related
+// concept, same three names, different mechanism).
+for (const name of ['Kieran', 'Roman', 'Sebas']) {
+  salesStmts.upsertRep.run({
+    id: name.toLowerCase(), name, email: null, ghl_user_id: null,
+    active: 1, created_at: Date.now(),
+  });
+}
 
 function getOpportunityCount() {
   return db.prepare(`SELECT COUNT(*) as n FROM pipeline_opportunities`).get().n;
@@ -982,8 +1000,9 @@ function addNote(row) {
 function getNotesForContact(contactId) { return salesStmts.notesByContact.all(contactId); }
 
 function addDisposition(row) {
-  const info = salesStmts.addDisposition.run(row);
-  return { id: info.lastInsertRowid, ...row };
+  const full = { lead_temperature: null, ...row };
+  const info = salesStmts.addDisposition.run(full);
+  return { id: info.lastInsertRowid, ...full };
 }
 function getDispositionsForContact(contactId) { return salesStmts.dispositionsByContact.all(contactId); }
 function getLastDispositionForContact(contactId) { return salesStmts.lastDispositionForContact.get(contactId) || null; }
@@ -1086,6 +1105,8 @@ const callCoachingStmts = {
     VALUES (@contact_id, @rep_id, @source, @call_duration, @call_status, @transcript, @analysis, @model, @created_at)
   `),
   forContact: db.prepare(`SELECT * FROM call_coaching WHERE contact_id = ? ORDER BY created_at DESC`),
+  getOne: db.prepare(`SELECT * FROM call_coaching WHERE id = ?`),
+  updateAnalysis: db.prepare(`UPDATE call_coaching SET analysis = ? WHERE id = ?`),
 };
 function addCallCoaching(row) {
   const info = callCoachingStmts.add.run(row);
@@ -1093,6 +1114,14 @@ function addCallCoaching(row) {
 }
 function getCallCoachingForContact(contactId) {
   return callCoachingStmts.forContact.all(contactId).map(r => ({ ...r, analysis: r.analysis ? JSON.parse(r.analysis) : null }));
+}
+// The rep can edit the AI's extracted call fields (service/price/date/etc)
+// before they're treated as confirmed — see sales/js/views/lead-profile.js's
+// "Confirm" step on the call-coaching card.
+function updateCallCoachingAnalysis(id, analysis) {
+  callCoachingStmts.updateAnalysis.run(JSON.stringify(analysis), id);
+  const row = callCoachingStmts.getOne.get(id);
+  return row ? { ...row, analysis: row.analysis ? JSON.parse(row.analysis) : null } : null;
 }
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -1181,5 +1210,6 @@ module.exports = {
   getAiClassifications,
   addCallCoaching,
   getCallCoachingForContact,
+  updateCallCoachingAnalysis,
   DB_PATH,
 };

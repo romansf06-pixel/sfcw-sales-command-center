@@ -1,6 +1,8 @@
-// Shared by Reactivation and Maintenance nav items — both are just a single
-// queue bucket rendered as its own page, so there is no separate fake page
-// duplicating the queue's logic.
+// Used by the Reactivation nav item — just a single queue bucket rendered as
+// its own page, so there is no separate fake page duplicating the queue's
+// logic. (Maintenance had the same treatment until its nav item was removed
+// 2026-09-26 — the maintenance_due bucket itself still exists and still
+// surfaces inside My Queue, it just lost its own standalone page.)
 import { api } from '../api.js';
 import { renderLeadCard, wireLeadCards } from '../components/lead-card.js';
 import { escapeHtml } from '../util.js';

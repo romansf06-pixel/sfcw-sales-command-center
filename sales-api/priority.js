@@ -379,4 +379,4 @@ function computeQueue(dbModule, overrides = {}) {
   };
 }
 
-module.exports = { computeQueue, DEFAULT_CONFIG, BUCKET_LABELS, BUCKET_WEIGHT };
+module.exports = { computeQueue, DEFAULT_CONFIG, BUCKET_LABELS, BUCKET_WEIGHT, HOT_SIGNALS };

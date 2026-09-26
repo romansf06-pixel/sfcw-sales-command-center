@@ -19,6 +19,27 @@ function fmtWeekdayDate(dateStr) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+const CALL_FIELDS = [
+  ['service', 'Service discussed'], ['price', 'Price mentioned'], ['date', 'Date/time mentioned'],
+  ['vehicle', 'Vehicle'], ['objection', 'Objection'], ['nextStep', 'Next step'],
+];
+
+// AI-extracted fields from a pasted call transcript, shown as an editable
+// form so the rep confirms or corrects before it's treated as real —
+// deliberately not auto-saved as-is. See sales-ai/call-coaching.js.
+function renderCallFieldsForm(coachingId, extracted) {
+  return `
+    <div class="call-fields" data-coaching-id="${coachingId}">
+      ${CALL_FIELDS.map(([key, label]) => `
+        <div class="call-field-row">
+          <span class="k">${escapeHtml(label)}</span>
+          <input type="text" data-field="${key}" value="${escapeHtml(extracted?.[key] ?? '')}" placeholder="Not mentioned">
+        </div>`).join('')}
+      <button class="btn primary" data-action="confirm-call-fields" style="margin-top:8px;font-size:11px;">Confirm</button>
+      <span class="call-fields-saved" style="display:none;">✓ Saved</span>
+    </div>`;
+}
+
 function ruleBasedSummary(lead) {
   const parts = [];
   parts.push(`${lead.name} came in via ${lead.source || 'an unknown source'}${lead.vehicle ? ` for a ${escapeHtml(lead.vehicle)}` : ''}${lead.service ? `, requesting ${escapeHtml(lead.service)}` : ''}.`);
@@ -85,6 +106,11 @@ export async function mount(root, id) {
         <div class="card">
           <div class="card-title">Conversation</div>
           <div id="lp-convo" style="display:flex;flex-direction:column;">Loading…</div>
+          ${lead.phone ? `
+            <div class="reply-box">
+              <textarea id="lp-reply-input" placeholder="Text ${escapeHtml(lead.firstName || lead.name)}…"></textarea>
+              <button class="btn primary" id="lp-reply-send">Send</button>
+            </div>` : '<div class="lead-meta" style="margin-top:8px;">No phone number on file — can\'t text this lead.</div>'}
         </div>
 
         <div class="card">
@@ -192,8 +218,23 @@ export async function mount(root, id) {
       btn.disabled = true; btn.textContent = 'Analyzing…';
       try {
         const res = await api.callCoaching(id, transcript, btn.dataset.duration || null, btn.dataset.status || null);
-        toast('Coaching ready');
-        root.querySelector(`#log-call-${i}`).innerHTML = `<div class="assist-box">${escapeHtml(res.text)}</div>`;
+        toast('Coaching ready — review the extracted fields below');
+        const box = root.querySelector(`#log-call-${i}`);
+        box.innerHTML = `
+          <div class="assist-box">${escapeHtml(res.text)}</div>
+          <div class="lead-meta" style="margin-top:8px;margin-bottom:4px;">Pulled from the transcript — check these before they're treated as confirmed:</div>
+          ${renderCallFieldsForm(res.coaching.id, res.extracted)}`;
+        box.querySelector('[data-action="confirm-call-fields"]').addEventListener('click', async (e) => {
+          const wrap = e.target.closest('.call-fields');
+          const edited = {};
+          wrap.querySelectorAll('[data-field]').forEach(inp => { edited[inp.dataset.field] = inp.value.trim() || null; });
+          e.target.disabled = true;
+          try {
+            await api.confirmCallCoaching(wrap.dataset.coachingId, res.text, edited);
+            wrap.querySelector('.call-fields-saved').style.display = 'inline';
+            toast('Call details saved');
+          } catch (err) { toast(err.message); e.target.disabled = false; }
+        });
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Get Coaching'; }
     }));
   }).catch(() => {
@@ -248,6 +289,26 @@ export async function mount(root, id) {
     if (root.dataset.leadId !== id) return;
     const el = root.querySelector('#lp-availability');
     if (el) el.innerHTML = `<div class="card-title">Availability — Next Openings</div><div class="empty-state">Could not load live availability.</div>`;
+  });
+
+  root.querySelector('#lp-reply-send')?.addEventListener('click', async () => {
+    const input = root.querySelector('#lp-reply-input');
+    const message = input.value.trim();
+    if (!message) return;
+    const btn = root.querySelector('#lp-reply-send');
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      await api.sendMessage(id, message);
+      input.value = '';
+      toast('Sent');
+      const convoEl = root.querySelector('#lp-convo');
+      if (convoEl) convoEl.innerHTML += `
+        <div class="msg out">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:2px;">SF CITY WASH</div>
+          ${escapeHtml(message)}
+          <div class="msg-date">Just now</div>
+        </div>`;
+    } catch (e) { toast(e.message); } finally { btn.disabled = false; btn.textContent = 'Send'; }
   });
 
   root.querySelector('#lp-followup').addEventListener('click', () => openFollowupModal(id, () => mount(root, id)));

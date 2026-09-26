@@ -21,19 +21,36 @@ async function analyzeCall({ ai, transcript, lead }) {
 
   const resp = await ai.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 700,
-    system: `You are a sales call coach for a mobile car detailing company. You will be given a transcript or summary of a call the rep just had, plus what's known about the lead from the CRM. Respond in EXACTLY this structure, plain text, these exact labels:
+    max_tokens: 900,
+    system: `You are a sales call coach for a mobile car detailing company. You will be given a transcript or summary of a call the rep just had, plus what's known about the lead from the CRM. Respond in EXACTLY this structure, plain text, these exact labels, in this order:
 What worked: [specific things the rep did well, citing the transcript]
 What to improve: [specific, actionable — not generic advice]
 Objections raised: [quote or paraphrase from the transcript, or "None identified"]
 Suggested follow-up message: [a short text message the rep could send next, in this business's casual/direct tone, or "Not needed — appointment booked" if the call ended in a booking]
 Key takeaway: [one sentence]
-Only use what's actually in the transcript and CRM context below — if the transcript doesn't mention something, don't invent it. Never state a percentage or probability of closing.`,
+Only use what's actually in the transcript and CRM context below — if the transcript doesn't mention something, don't invent it. Never state a percentage or probability of closing.
+
+After the "Key takeaway" line, add one more line exactly like this (still plain text, no markdown fences):
+EXTRACTED_FIELDS: {"service": null, "price": null, "date": null, "vehicle": null, "objection": null, "nextStep": null}
+Fill each value with what was actually said in the transcript (short strings, e.g. "$229", "this Saturday", "2019 Honda Civic"), or leave it JSON null if that specific thing was never mentioned. This must be valid JSON on a single line — no comments, no trailing text after it.`,
     messages: [{ role: 'user', content: `CRM context:\n${JSON.stringify(context, null, 2)}\n\nCall transcript/summary:\n${transcript}` }],
   }, { timeout: 30_000 });
 
-  const text = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  return { text, usage: resp.usage };
+  const raw = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+
+  // The extracted-fields line is a bonus, structured-data convenience on top
+  // of the coaching text — if the model didn't format it exactly right,
+  // that's not a reason to fail the whole request, just to leave the fields
+  // blank for the rep to fill in by hand.
+  const marker = 'EXTRACTED_FIELDS:';
+  const markerIdx = raw.lastIndexOf(marker);
+  let text = raw, extracted = { service: null, price: null, date: null, vehicle: null, objection: null, nextStep: null };
+  if (markerIdx !== -1) {
+    text = raw.slice(0, markerIdx).trim();
+    try { extracted = { ...extracted, ...JSON.parse(raw.slice(markerIdx + marker.length).trim()) }; } catch { /* keep the blanks */ }
+  }
+
+  return { text, extracted, usage: resp.usage };
 }
 
 module.exports = { analyzeCall };

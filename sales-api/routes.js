@@ -7,14 +7,15 @@
  * everything under /api/* — this file adds no new auth of its own, it reuses
  * what's there. See server.js's apiGate() for how that works.
  *
- * This file writes NOTHING to GoHighLevel. Every write here (notes, follow-ups,
- * dispositions, settings) lands only in the local sales_* tables added to
- * db/index.js. The only outbound GHL calls are read-only (conversations/messages).
+ * The ONLY write this file makes to GoHighLevel is POST /leads/:id/send-message
+ * (2026-09-26) — everything else here (notes, follow-ups, dispositions,
+ * settings, handled-by, trash) lands only in the local sales_* tables added
+ * to db/index.js. Every other outbound GHL call is read-only.
  */
 
 const express = require('express');
-const { computeQueue, DEFAULT_CONFIG } = require('./priority');
-const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch, getTrashedLeads } = require('./queries');
+const { computeQueue, DEFAULT_CONFIG, HOT_SIGNALS } = require('./priority');
+const { getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads } = require('./queries');
 const { classifyMessage } = require('./intent');
 const { analyzeCall } = require('../sales-ai/call-coaching');
 const { resolveServiceKey, getRecommendedSlots } = require('./availability');
@@ -28,16 +29,23 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   }
   router.use(requireDb);
 
-  const repId = () => dbModule.DEFAULT_REP_ID;
+  // "Who's using this browser" — a no-password picker (sales/js/main.js),
+  // sent as x-sales-rep on every request (sales/js/api.js). Not real auth;
+  // falls back to the single shared default rep if missing/unrecognized.
+  const HANDLED_BY_NAMES = ['Kieran', 'Roman', 'Sebas']; // keep in sync with sales/js/util.js
+  const repId = (req) => {
+    const header = (req?.headers?.['x-sales-rep'] || '').toLowerCase();
+    return HANDLED_BY_NAMES.map(n => n.toLowerCase()).includes(header) ? header : dbModule.DEFAULT_REP_ID;
+  };
 
   // ── Identity ──────────────────────────────────────────────────────────────
-  router.get('/rep', (_req, res) => {
-    res.json({ ok: true, rep: dbModule.getRep() });
+  router.get('/rep', (req, res) => {
+    res.json({ ok: true, rep: dbModule.getRep(repId(req)) });
   });
 
   // ── Queue ─────────────────────────────────────────────────────────────────
-  router.get('/queue', (_req, res) => {
-    const settings = dbModule.getSalesSettings(repId());
+  router.get('/queue', (req, res) => {
+    const settings = dbModule.getSalesSettings(repId(req));
     const result = computeQueue(dbModule, settings?.priority || {});
     res.json({ ok: true, ...result });
   });
@@ -46,11 +54,11 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   // GHL conversations and Setmore syncs the background timers run, then
   // returns a fresh queue. Exists so a rep can force-sync right before
   // making calls instead of trusting the interval to have landed already.
-  router.post('/sync-now', async (_req, res) => {
+  router.post('/sync-now', async (req, res) => {
     if (!syncNow) return res.status(503).json({ ok: false, error: 'Sync not wired up' });
     try {
       const result = await syncNow();
-      const settings = dbModule.getSalesSettings(repId());
+      const settings = dbModule.getSalesSettings(repId(req));
       const queue = computeQueue(dbModule, settings?.priority || {});
       res.json({ ok: true, syncedAt: Date.now(), ...result, ...queue });
     } catch (e) {
@@ -120,6 +128,45 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
     }
   });
 
+  // ── Send a text reply — the ONE write this app makes to GHL (everything
+  // else here is read-only, see the file header). Uses the exact call+params
+  // proven live in production by sfcw-booking-worker/src/index.js:652
+  // (sendGHLSMS) — including its Version header, 2021-04-15, NOT the
+  // dashboard's usual ghlHeaders() (2021-07-28). Per
+  // .claude/skills/integrating-sfcw-apis: never unify GHL API versions on a
+  // guess — this one is the version actually verified to work for sending.
+  router.post('/leads/:id/send-message', async (req, res) => {
+    if (!process.env.GHL_API_KEY) return res.status(503).json({ ok: false, error: 'GHL_API_KEY not set' });
+    const message = (req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ ok: false, error: 'message required' });
+    const contactId = req.params.id;
+    try {
+      await axios.post(`${GHL_BASE}/conversations/messages`,
+        { type: 'SMS', contactId, locationId: GHL_LOCATION, message },
+        { headers: { Authorization: `Bearer ${process.env.GHL_API_KEY}`, 'Content-Type': 'application/json', Version: '2021-04-15' } });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.response?.data?.message || e.message });
+    }
+    // Optimistic local update so the Conversations/Lead Profile view reflects
+    // the send immediately, without waiting for the next GHL sync cycle —
+    // the next sync (see server.js syncGHLConversations) still overwrites
+    // this with GHL's own record, same as everywhere else in this app.
+    try {
+      const now = Date.now();
+      const existing = dbModule.db.prepare(`SELECT id FROM conversations WHERE contact_id = ? ORDER BY last_msg_at DESC LIMIT 1`).get(contactId);
+      if (existing) {
+        dbModule.db.prepare(`UPDATE conversations SET last_message=?, last_msg_at=?, last_message_direction='outbound', unread=0 WHERE id=?`)
+          .run(message.slice(0, 500), now, existing.id);
+      } else {
+        dbModule.db.prepare(`
+          INSERT INTO conversations (id, ghl_id, contact_id, platform, last_message, last_msg_at, last_message_direction, unread, synced_at)
+          VALUES (@id, @id, @contact_id, 'sms', @last_message, @now, 'outbound', 0, @now)
+        `).run({ id: `local_${contactId}_${now}`, contact_id: contactId, last_message: message.slice(0, 500), now });
+      }
+    } catch (e) { /* the send itself already succeeded — a cache-update miss isn't worth failing the request over */ }
+    res.json({ ok: true, sentAt: Date.now() });
+  });
+
   // ── Availability — "can I offer them a slot right now" without leaving
   // the lead's page. Reads live from the public Booking Worker (see
   // sales-api/availability.js) — never invents a time; a day with no
@@ -151,11 +198,11 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
       const result = await analyzeCall({ ai, transcript, lead });
       if (result.error) return res.status(503).json({ ok: false, error: result.error });
       const row = dbModule.addCallCoaching({
-        contact_id: req.params.id, rep_id: repId(), source: req.body?.source || 'manual',
+        contact_id: req.params.id, rep_id: repId(req), source: req.body?.source || 'manual',
         call_duration: req.body?.callDuration ?? null, call_status: req.body?.callStatus || null,
-        transcript, analysis: JSON.stringify({ text: result.text }), model: 'claude-sonnet-4-6', created_at: Date.now(),
+        transcript, analysis: JSON.stringify({ text: result.text, extracted: result.extracted }), model: 'claude-sonnet-4-6', created_at: Date.now(),
       });
-      res.json({ ok: true, coaching: row, text: result.text, usage: result.usage });
+      res.json({ ok: true, coaching: row, text: result.text, extracted: result.extracted, usage: result.usage });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }
@@ -165,11 +212,21 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
     res.json({ ok: true, coaching: dbModule.getCallCoachingForContact(req.params.id) });
   });
 
+  // Rep reviews/edits the AI-extracted fields before treating them as
+  // confirmed — see sales/js/views/lead-profile.js's "Confirm" step.
+  router.post('/call-coaching/:coachingId/confirm', (req, res) => {
+    const { text, extracted } = req.body || {};
+    if (!extracted) return res.status(400).json({ ok: false, error: 'extracted required' });
+    const row = dbModule.updateCallCoachingAnalysis(req.params.coachingId, { text: text || '', extracted, confirmed: true });
+    if (!row) return res.status(404).json({ ok: false, error: 'Coaching record not found' });
+    res.json({ ok: true, coaching: row });
+  });
+
   // ── Notes ─────────────────────────────────────────────────────────────────
   router.post('/leads/:id/notes', (req, res) => {
     const body = (req.body?.body || '').trim();
     if (!body) return res.status(400).json({ ok: false, error: 'note body required' });
-    const note = dbModule.addNote({ contact_id: req.params.id, rep_id: repId(), body, created_at: Date.now() });
+    const note = dbModule.addNote({ contact_id: req.params.id, rep_id: repId(req), body, created_at: Date.now() });
     res.json({ ok: true, note });
   });
   router.get('/leads/:id/notes', (req, res) => {
@@ -181,7 +238,7 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
     const { dueAt, reason, note } = req.body || {};
     if (!dueAt) return res.status(400).json({ ok: false, error: 'dueAt (unix ms) required' });
     const followup = dbModule.addFollowup({
-      contact_id: req.params.id, rep_id: repId(),
+      contact_id: req.params.id, rep_id: repId(req),
       due_at: Number(dueAt), reason: reason || null, note: note || null, created_at: Date.now(),
     });
     res.json({ ok: true, followup });
@@ -207,8 +264,15 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   router.post('/leads/:id/dispositions', (req, res) => {
     const { disposition, note } = req.body || {};
     if (!disposition) return res.status(400).json({ ok: false, error: 'disposition required' });
+    // Captured at log time, same HOT_SIGNALS rule the queue's HOT/WARM badge
+    // uses — see db/index.js's ensureColumn comment for why this can't be
+    // re-derived reliably later (a lead's live message-based classification
+    // isn't stable history, it's a snapshot of whatever the last message was).
+    const lead = getLeadDetail(dbModule, req.params.id);
+    const intent = lead?.messageIntent;
+    const lead_temperature = intent ? (intent.signals?.some(s => HOT_SIGNALS.has(s)) ? 'hot' : 'warm') : null;
     const row = dbModule.addDisposition({
-      contact_id: req.params.id, rep_id: repId(), disposition, note: note || null, created_at: Date.now(),
+      contact_id: req.params.id, rep_id: repId(req), disposition, note: note || null, lead_temperature, created_at: Date.now(),
     });
     res.json({ ok: true, disposition: row });
   });
@@ -224,10 +288,10 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   });
 
   // ── Handled By — a shared, visible-to-everyone marker (not per-viewer
-  // ownership), since the whole team works the same queue. Fixed set of
-  // names rather than free text so it can only ever be one of the actual
-  // people using this app. Passing handledBy: null clears it.
-  const HANDLED_BY_NAMES = ['Kieran', 'Roman', 'Sebas'];
+  // ownership), since the whole team works the same queue. Same fixed set of
+  // names as the x-sales-rep login picker above, but a different concept:
+  // "who is this lead assigned to" vs "who is using this browser right now."
+  // Passing handledBy: null clears it.
   router.post('/leads/:id/handled-by', (req, res) => {
     const { handledBy } = req.body || {};
     if (handledBy !== null && !HANDLED_BY_NAMES.includes(handledBy)) {
@@ -266,24 +330,24 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   });
 
   // ── Settings (customization) ─────────────────────────────────────────────
-  router.get('/settings', (_req, res) => {
-    const config = dbModule.getSalesSettings(repId()) || { priority: DEFAULT_CONFIG, ui: {} };
+  router.get('/settings', (req, res) => {
+    const config = dbModule.getSalesSettings(repId(req)) || { priority: DEFAULT_CONFIG, ui: {} };
     res.json({ ok: true, settings: config, defaults: { priority: DEFAULT_CONFIG } });
   });
   router.post('/settings', (req, res) => {
-    const current = dbModule.getSalesSettings(repId()) || {};
+    const current = dbModule.getSalesSettings(repId(req)) || {};
     const next = { ...current, ...req.body };
-    dbModule.saveSalesSettings(repId(), next);
+    dbModule.saveSalesSettings(repId(req), next);
     res.json({ ok: true, settings: next });
   });
 
   // ── Saved views ───────────────────────────────────────────────────────────
-  router.get('/views', (_req, res) => res.json({ ok: true, views: dbModule.getSavedViews(repId()) }));
+  router.get('/views', (req, res) => res.json({ ok: true, views: dbModule.getSavedViews(repId(req)) }));
   router.post('/views', (req, res) => {
     const { id, name, config } = req.body || {};
     if (!name || !config) return res.status(400).json({ ok: false, error: 'name and config required' });
     const views = dbModule.saveSavedView({
-      id: id || `view_${Date.now()}`, rep_id: repId(), name, config: JSON.stringify(config), created_at: Date.now(),
+      id: id || `view_${Date.now()}`, rep_id: repId(req), name, config: JSON.stringify(config), created_at: Date.now(),
     });
     res.json({ ok: true, views });
   });
@@ -293,8 +357,15 @@ module.exports = function salesRoutes({ dbModule, axios, GHL_BASE, GHL_LOCATION,
   // Shared with the AI Copilot's get_sales_metrics tool (queries.js
   // getSalesMetrics) so the assistant can never report a number that
   // disagrees with what this page shows.
-  router.get('/stats', (_req, res) => {
-    res.json({ ok: true, ...getSalesMetrics(dbModule, dbModule.getSalesSettings(repId())?.priority || {}) });
+  router.get('/stats', (req, res) => {
+    res.json({ ok: true, ...getSalesMetrics(dbModule, dbModule.getSalesSettings(repId(req))?.priority || {}) });
+  });
+
+  // Per-person revenue/close-rate breakdown — see queries.js getRepAnalytics
+  // for the two distinct attribution signals it reports and why they're kept
+  // separate.
+  router.get('/analytics/reps', (_req, res) => {
+    res.json({ ok: true, ...getRepAnalytics(dbModule) });
   });
 
   // ── Sales Assistant (Claude) ─────────────────────────────────────────────

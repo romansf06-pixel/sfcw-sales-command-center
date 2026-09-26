@@ -357,6 +357,84 @@ function getSalesMetrics(dbModule, priorityConfig = {}) {
   };
 }
 
+// Per-person breakdown for Analytics. Two attribution signals, kept distinct
+// on purpose rather than merged into one number:
+//   - "logged in as" activity (sales_dispositions.rep_id) — who was actually
+//     signed into this browser when the action happened.
+//   - "handled by" deals/revenue (sales_lead_state.handled_by) — who owns the
+//     lead, which is what "Handled by: Roman ends in a close" actually means.
+// A rep can log a disposition on a lead someone else handles (e.g. covering
+// a call) — that shouldn't misattribute the sale.
+//
+// Revenue is real (Stripe-sourced job_revenue, not typed in by a rep), but
+// only reaches a contact by matching phone numbers — Setmore never returns a
+// GHL contact id (see booking-source.js, CONVERSION_CAVEATS below, and every
+// other place in this app that already lives with this same limitation). A
+// closed deal whose booking phone doesn't match its contact's phone on file
+// simply won't have revenue attached — undercounts, never fabricates.
+const HANDLED_BY_NAMES = ['Kieran', 'Roman', 'Sebas']; // keep in sync with sales/js/util.js + sales-api/routes.js
+const CLOSED_DISPOSITION = 'closed_job_completed';
+const LOST_DISPOSITIONS = ['lost', 'not_interested'];
+
+function getRepAnalytics(dbModule) {
+  const db = dbModule.db;
+
+  const contactPhoneById = new Map();
+  for (const c of db.prepare(`SELECT id, phone FROM contacts WHERE phone IS NOT NULL`).all()) {
+    contactPhoneById.set(c.id, phoneDigits(c.phone));
+  }
+  const revenueByPhone = new Map();
+  for (const r of db.prepare(`
+    SELECT b.phone AS phone, SUM(jr.total) AS total
+    FROM job_revenue jr JOIN bookings b ON b.id = jr.booking_id
+    WHERE b.phone IS NOT NULL GROUP BY b.phone
+  `).all()) {
+    revenueByPhone.set(phoneDigits(r.phone), r.total || 0);
+  }
+
+  const people = HANDLED_BY_NAMES.map(name => {
+    const repIdLower = name.toLowerCase();
+    const activityCount = db.prepare(`SELECT COUNT(*) n FROM sales_dispositions WHERE rep_id = ?`).get(repIdLower).n;
+
+    const handledContacts = db.prepare(`SELECT contact_id FROM sales_lead_state WHERE handled_by = ?`).all(name).map(r => r.contact_id);
+    const handledSet = new Set(handledContacts);
+
+    let closedCount = 0, revenue = 0;
+    if (handledContacts.length) {
+      const placeholders = handledContacts.map(() => '?').join(',');
+      const closedIds = db.prepare(`
+        SELECT DISTINCT contact_id FROM sales_dispositions
+        WHERE disposition = ? AND contact_id IN (${placeholders})
+      `).all(CLOSED_DISPOSITION, ...handledContacts).map(r => r.contact_id);
+      closedCount = closedIds.length;
+      for (const id of closedIds) {
+        const ph = contactPhoneById.get(id);
+        if (ph && revenueByPhone.has(ph)) revenue += revenueByPhone.get(ph);
+      }
+    }
+
+    // Close % by warmth — small-sample by nature (dispositions are new, see
+    // sales-ai/context.js knownLimitations), report raw counts too so the UI
+    // can show "2 of 3" rather than implying statistical confidence.
+    const warmth = { hot: { closed: 0, lost: 0 }, warm: { closed: 0, lost: 0 } };
+    if (handledContacts.length) {
+      const placeholders = handledContacts.map(() => '?').join(',');
+      const rows = db.prepare(`
+        SELECT disposition, lead_temperature FROM sales_dispositions
+        WHERE contact_id IN (${placeholders}) AND lead_temperature IN ('hot','warm')
+      `).all(...handledContacts);
+      for (const r of rows) {
+        if (r.disposition === CLOSED_DISPOSITION) warmth[r.lead_temperature].closed++;
+        else if (LOST_DISPOSITIONS.includes(r.disposition)) warmth[r.lead_temperature].lost++;
+      }
+    }
+
+    return { name, repId: repIdLower, activityCount, handledCount: handledSet.size, closedCount, revenue, warmth };
+  });
+
+  return { people, caveats: [...CONVERSION_CAVEATS, 'Revenue and close-rate figures above are undercounts, never overclaims — a deal only counts once a "Closed — Job Completed" disposition is logged by hand (Setmore never reports job completion), and revenue only attaches when the booking\'s phone number matches the contact\'s phone on file.'] };
+}
+
 function globalSearch(dbModule, q, limit = 20) {
   if (!q || q.length < 2) return [];
   const like = `%${q}%`;
@@ -370,4 +448,4 @@ function globalSearch(dbModule, q, limit = 20) {
   return rows.map(r => buildLead(dbModule, r, { withEnrichment: false }));
 }
 
-module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, globalSearch, getTrashedLeads, fullName, matchMaintenance, primaryOpportunity, latestConversation };
+module.exports = { buildLead, getLeadsPage, getLeadDetail, getLeadTimeline, getRecentMessages, getBookingsOverview, getSalesMetrics, getRepAnalytics, globalSearch, getTrashedLeads, fullName, matchMaintenance, primaryOpportunity, latestConversation };

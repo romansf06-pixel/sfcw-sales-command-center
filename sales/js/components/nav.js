@@ -5,12 +5,8 @@ const ITEMS = [
   { route: '#/messages', label: 'Conversations' },
   { route: '#/leads', label: 'Leads' },
   { route: '#/followups', label: 'Follow-Ups' },
-  { route: '#/call-list', label: 'Call List' },
-  { route: '#/scripts', label: 'Scripts' },
   { route: '#/calendar', label: 'Calendar' },
-  { route: '#/trash', label: 'Trash' },
   { route: '#/reactivation', label: 'Reactivation', countKey: 'reactivation' },
-  { route: '#/maintenance', label: 'Maintenance', countKey: 'maintenance_due' },
   { route: '#/analytics', label: 'Analytics' },
   { route: '#/settings', label: 'Settings' },
 ];
@@ -23,7 +19,7 @@ function fmtSyncAge(ms) {
   return `${Math.round(s / 60)}m ago`;
 }
 
-export function renderNav(currentRoute, counts = {}, sync = {}) {
+export function renderNav(currentRoute, counts = {}, sync = {}, repName = '') {
   const rows = ITEMS.map(it => {
     const active = currentRoute === it.route ? ' active' : '';
     const count = it.countKey ? counts[it.countKey] : undefined;
@@ -40,6 +36,9 @@ export function renderNav(currentRoute, counts = {}, sync = {}) {
       <span class="nav-sync-age">GHL/Setmore synced ${fmtSyncAge(sync.lastSyncedAt)}</span>
     </div>
     ${rows}
-    <div class="nav-footer">Company dashboard is separate — <a href="/" target="_blank" style="color:var(--accent-l);">open it ↗</a></div>
+    <div class="nav-footer">
+      ${repName ? `Signed in as <b>${repName}</b> — <span data-action="switch-rep" style="color:var(--accent-l);cursor:pointer;">switch</span><br>` : ''}
+      Company dashboard is separate — <a href="/" target="_blank" style="color:var(--accent-l);">open it ↗</a>
+    </div>
   `;
 }

@@ -44,7 +44,8 @@ export const BUCKET_META = {
 export const DISPOSITIONS = [
   ['no_answer', 'No Answer'], ['voicemail', 'Left Voicemail'], ['spoke_follow_up', 'Spoke — Follow Up'],
   ['needs_quote', 'Needs Quote'], ['quote_sent', 'Quote Sent'], ['thinking', 'Thinking About It'],
-  ['ready_to_book', 'Ready To Book'], ['booked', 'Booked'], ['not_interested', 'Not Interested'],
+  ['ready_to_book', 'Ready To Book'], ['booked', 'Booked'],
+  ['closed_job_completed', 'Closed — Job Completed'], ['not_interested', 'Not Interested'],
   ['price_objection', 'Price Objection'], ['timing_objection', 'Timing Objection'],
   ['wrong_number', 'Wrong Number'], ['do_not_contact', 'Do Not Contact'], ['lost', 'Lost'],
 ];
