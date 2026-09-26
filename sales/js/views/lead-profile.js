@@ -207,27 +207,43 @@ export async function mount(root, id) {
     if (root.dataset.leadId !== id) return; // superseded by a later navigation
     const el = root.querySelector('#lp-availability');
     if (!el) return;
-    if (!r.days?.length) {
-      el.innerHTML = `<div class="card-title">Availability — Next Openings</div>
-        <div class="empty-state">No openings found in the next 7 days — call ${escapeHtml(r.supportPhone || '')} to check further out.</div>`;
-      return;
-    }
     const svcLine = r.service.approximate
       ? `<div class="lead-meta" style="margin-bottom:8px;">${escapeHtml(r.service.note || 'Approximate — based on a standard appointment length.')}</div>`
       : `<div class="lead-meta" style="margin-bottom:8px;">For ${escapeHtml(r.service.name)}${r.service.price ? ` · $${r.service.price}` : ''}${r.service.durationMinutes ? ` · ~${r.service.durationMinutes} min` : ''}</div>`;
-    el.innerHTML = `
-      <div class="card-title">Availability — Next Openings</div>
-      ${svcLine}
-      <div class="avail-days">
-        ${r.days.map(d => `
+    // Every day of the window renders, always — a day that's genuinely fully
+    // booked (checked: true, available: false) looks visibly different from
+    // one we simply failed to verify (checked: false), so a real outage never
+    // reads as an ordinary quiet week.
+    const dayRow = d => {
+      if (d.available) {
+        return `
           <div class="avail-day">
             <div class="avail-date">${escapeHtml(fmtWeekdayDate(d.date))}</div>
             <div class="avail-times">
               ${d.times.map(t => `<span class="avail-chip">${escapeHtml(fmtTime12(t))}</span>`).join('')}
               ${d.totalOpen > d.times.length ? `<span class="avail-more">+${d.totalOpen - d.times.length} more</span>` : ''}
             </div>
-          </div>`).join('')}
-      </div>`;
+          </div>`;
+      }
+      if (d.checked) {
+        return `
+          <div class="avail-day">
+            <div class="avail-date">${escapeHtml(fmtWeekdayDate(d.date))}</div>
+            <span class="avail-chip unavailable">Fully booked</span>
+          </div>`;
+      }
+      return `
+        <div class="avail-day">
+          <div class="avail-date">${escapeHtml(fmtWeekdayDate(d.date))}</div>
+          <span class="avail-chip unchecked">Couldn't check</span>
+        </div>`;
+    };
+    el.innerHTML = `
+      <div class="card-title">Availability — Next 7 Days</div>
+      ${svcLine}
+      <div class="avail-days">${(r.days || []).map(dayRow).join('')}</div>
+      ${r.days?.some(d => !d.checked) ? `<div class="lead-meta" style="margin-top:8px;">Some days couldn't be verified live — call ${escapeHtml(r.supportPhone || '')} to confirm those.</div>` : ''}
+    `;
   }).catch(() => {
     if (root.dataset.leadId !== id) return;
     const el = root.querySelector('#lp-availability');

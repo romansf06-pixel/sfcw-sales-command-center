@@ -75,35 +75,60 @@ function resolveServiceKey(readData, leadServiceText) {
   };
 }
 
-function dateStr(d) { return d.toISOString().slice(0, 10); }
+// Business timezone is San Francisco. Node/Railway run in UTC by default, and
+// a bare `new Date().toISOString()` already reads as TOMORROW for several
+// hours every evening Pacific (roughly 5pm-midnight PT depending on DST) —
+// verified live 2026-09-25: server UTC clock read "2026-09-26" while it was
+// still "2026-09-25", 5:49pm, in San Francisco. That one-day shift is what
+// made the "next 7 days" window look like it had wrong/random dates. Same
+// trap the Booking Worker's own nowInBusinessTZ() exists to avoid — see
+// .claude/skills/integrating-sfcw-apis/references/setmore.md.
+function todaySFParts() {
+  const s = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
+  const [y, m, d] = s.split('-').map(Number);
+  return { y, m, d };
+}
+
+// Local (not UTC) Y-M-D of a plain calendar Date — the anchor day above is
+// already the correct SF calendar date, so everything from here on is pure
+// calendar arithmetic; toISOString() must never come back into this path.
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /**
  * Pulls the next `days` days of live availability for one service key from
- * the public Worker, in parallel. Returns only days that have at least one
- * open slot, each capped to `maxPerDay` times so the card stays short.
+ * the public Worker, in parallel. Always returns every day in the window —
+ * each one explicitly `available` (real open slots), unavailable-but-checked
+ * (a genuine fully-booked/blocked day), or unchecked (the Worker call failed
+ * for that day) — so a rep can tell "actually booked solid" apart from "we
+ * couldn't verify this day" instead of both looking like an empty gap.
  */
 async function getRecommendedSlots({ axios, serviceKey, days = 7, maxPerDay = 4 }) {
-  const today = new Date();
+  const { y, m, d } = todaySFParts();
+  const anchor = new Date(y, m - 1, d);
   const dates = Array.from({ length: days }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    return dateStr(d);
+    const dt = new Date(anchor);
+    dt.setDate(dt.getDate() + i);
+    return localDateStr(dt);
   });
 
-  const results = await Promise.all(dates.map(async d => {
+  const results = await Promise.all(dates.map(async dateStr => {
     try {
-      const res = await axios.get(`${WORKER_BASE}/slots`, { params: { date: d, serviceKeys: serviceKey }, timeout: 8000 });
+      const res = await axios.get(`${WORKER_BASE}/slots`, { params: { date: dateStr, serviceKeys: serviceKey }, timeout: 8000 });
       const body = res.data;
-      if (!body?.success) return null;
+      if (!body?.success) return { date: dateStr, checked: false, available: false, times: [], totalOpen: 0 };
       const open = (body.slots || []).filter(s => s.available).map(s => s.time);
-      if (!open.length) return null;
-      return { date: d, times: open.slice(0, maxPerDay), totalOpen: open.length, jobMinutes: body.jobMinutes };
+      return {
+        date: dateStr, checked: true, available: open.length > 0,
+        times: open.slice(0, maxPerDay), totalOpen: open.length, jobMinutes: body.jobMinutes,
+      };
     } catch {
-      return null; // one bad day shouldn't blank the whole card
+      return { date: dateStr, checked: false, available: false, times: [], totalOpen: 0 };
     }
   }));
 
-  return { days: results.filter(Boolean), supportPhone: '(415) 360-1964' };
+  return { days: results, supportPhone: '(415) 360-1964' };
 }
 
 module.exports = { resolveServiceKey, getRecommendedSlots, WORKER_BASE, FALLBACK_SERVICE };
