@@ -34,12 +34,25 @@ function ruleBasedSummary(lead) {
   return parts.join(' ');
 }
 
+// The page container (`root`) is reused across every navigation — if a rep
+// opens lead A then clicks lead B before A's requests finish, A's responses
+// would otherwise land after B's own mount() has already redrawn the page,
+// silently overwriting B's card with A's data (or an empty/error state) until
+// a hard refresh. `root.dataset.leadId` is stamped synchronously the instant
+// each mount() call starts, so every later async callback can check "is my
+// lead still the one on screen" before touching the DOM.
 export async function mount(root, id) {
+  root.dataset.leadId = id;
   root.innerHTML = `<div class="spinner">Loading lead…</div>`;
   let lead, timeline;
   try {
     [lead, timeline] = await Promise.all([api.lead(id).then(r => r.lead), api.timeline(id).then(r => r.timeline)]);
-  } catch (e) { root.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+  } catch (e) {
+    if (root.dataset.leadId !== id) return;
+    root.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  if (root.dataset.leadId !== id) return; // navigated away while this was loading
 
   const vehicle = [lead.vehicleYear, lead.vehicleMake, lead.vehicleModel].filter(Boolean).join(' ') || lead.vehicle || '—';
 
@@ -142,6 +155,7 @@ export async function mount(root, id) {
 
   // Conversation (fetched separately — live GHL call, not part of the cached lead object)
   api.conversation(id).then(r => {
+    if (root.dataset.leadId !== id) return; // superseded by a later navigation
     const el = root.querySelector('#lp-convo');
     if (!r.messages?.length) { el.innerHTML = '<div class="empty-state">No messages on file.</div>'; return; }
     el.innerHTML = r.messages.map((m, i) => {
@@ -182,11 +196,15 @@ export async function mount(root, id) {
         root.querySelector(`#log-call-${i}`).innerHTML = `<div class="assist-box">${escapeHtml(res.text)}</div>`;
       } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Get Coaching'; }
     }));
-  }).catch(() => { root.querySelector('#lp-convo').innerHTML = '<div class="empty-state">Could not load conversation.</div>'; });
+  }).catch(() => {
+    if (root.dataset.leadId !== id) return;
+    root.querySelector('#lp-convo').innerHTML = '<div class="empty-state">Could not load conversation.</div>';
+  });
 
   // Availability (fetched separately — live call to the public Booking
   // Worker, not part of the cached lead object) — see sales-api/availability.js.
   api.availability(id).then(r => {
+    if (root.dataset.leadId !== id) return; // superseded by a later navigation
     const el = root.querySelector('#lp-availability');
     if (!el) return;
     if (!r.days?.length) {
@@ -211,6 +229,7 @@ export async function mount(root, id) {
           </div>`).join('')}
       </div>`;
   }).catch(() => {
+    if (root.dataset.leadId !== id) return;
     const el = root.querySelector('#lp-availability');
     if (el) el.innerHTML = `<div class="card-title">Availability — Next Openings</div><div class="empty-state">Could not load live availability.</div>`;
   });
